@@ -104,7 +104,7 @@ export async function extractRDProfile(
     messages: [
       {
         role: "user",
-        content: `Extract the R&D profile from this client meeting transcript:\n\n<transcript>\n${transcript}\n</transcript>`,
+        content: `Extract the R&D profile from this client meeting transcript:\n\n<transcript>\n${transcript.replace(/<\/transcript>/g, "")}\n</transcript>`,
       },
     ],
   });

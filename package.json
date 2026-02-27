@@ -1,0 +1,26 @@
+{
+  "name": "randd-tax-ai-mcp",
+  "version": "0.1.0",
+  "description": "MCP server for R&D Tax AI agent — tools and orchestration for RDTI claim preparation (Claude CoWork)",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsc && node dist/index.js",
+    "prepare": "npm run build"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": ["mcp", "randd", "tax", "xero"],
+  "license": "UNLICENSED",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.0.0"
+  }
+}

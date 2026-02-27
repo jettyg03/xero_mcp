@@ -8,6 +8,16 @@ import type { XeroAttachment } from "./types.js";
 
 const XERO_API_BASE = "https://api.xero.com/api.xro/2.0";
 
+/** Xero transaction IDs are UUID-like; allow only safe chars to prevent path traversal. */
+const SAFE_TRANSACTION_ID = /^[a-zA-Z0-9-]{1,64}$/;
+function assertSafeTransactionId(transactionId: string): void {
+  if (!SAFE_TRANSACTION_ID.test(transactionId)) {
+    throw new Error(
+      `Invalid transactionId: must be alphanumeric or hyphen, 1–64 chars. Got length ${transactionId.length}.`
+    );
+  }
+}
+
 /**
  * Fetch all attachments for a single bank transaction.
  * Returns an empty array (not an error) when no attachments exist.
@@ -17,6 +27,7 @@ export async function getAttachmentsForTransaction(
   accessToken: string,
   transactionId: string
 ): Promise<XeroAttachment[]> {
+  assertSafeTransactionId(transactionId);
   const url = `${XERO_API_BASE}/BankTransactions/${transactionId}/Attachments`;
 
   const res = await fetch(url, {
@@ -42,14 +53,15 @@ export async function getAttachmentsForTransaction(
 
 /**
  * Fetch attachments for a batch of transactions concurrently.
- * Returns a Map from transactionId → XeroAttachment[].
+ * Uses Promise.allSettled so one failure does not fail the whole batch.
+ * Returns a Map from transactionId → XeroAttachment[] (failed IDs get []).
  */
 export async function getAttachmentsForTransactions(
   tenantId: string,
   accessToken: string,
   transactionIds: string[]
 ): Promise<Map<string, XeroAttachment[]>> {
-  const entries = await Promise.all(
+  const results = await Promise.allSettled(
     transactionIds.map(async (id) => {
       const attachments = await getAttachmentsForTransaction(
         tenantId,
@@ -59,7 +71,16 @@ export async function getAttachmentsForTransactions(
       return [id, attachments] as const;
     })
   );
-  return new Map(entries);
+  const map = new Map<string, XeroAttachment[]>();
+  results.forEach((r, i) => {
+    const id = transactionIds[i];
+    if (r.status === "fulfilled") {
+      map.set(id, r.value[1]);
+    } else {
+      map.set(id, []);
+    }
+  });
+  return map;
 }
 
 // ---------------------------------------------------------------------------

@@ -19,6 +19,9 @@ const XERO_SCOPES = [
   "offline_access",
 ].join(" ");
 
+/** Refresh token when access token has less than this many ms until expiry. */
+const REFRESH_TOKEN_BUFFER_MS = 60 * 1000;
+
 // ---------------------------------------------------------------------------
 // In-memory token store keyed by tenantId.
 // Replace with a persistent, encrypted store (e.g. KMS-backed DB) in production.
@@ -88,7 +91,7 @@ export async function getValidAccessToken(
     );
   }
 
-  if (Date.now() >= token.expiresAt - 60_000) {
+  if (Date.now() >= token.expiresAt - REFRESH_TOKEN_BUFFER_MS) {
     const refreshed = await doRefresh(
       tenantId,
       token.refreshToken,
@@ -147,9 +150,5 @@ async function tokenRequest(
     );
   }
 
-  return res.json() as Promise<{
-    access_token: string;
-    refresh_token: string;
-    expires_in: number;
-  }>;
+  return res.json();
 }

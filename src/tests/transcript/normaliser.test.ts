@@ -3,7 +3,7 @@
  * Pure unit tests — no API calls or external deps required.
  */
 
-import { describe, it } from "node:test";
+import { describe, it } from "vitest";
 import assert from "node:assert/strict";
 import { normaliseTranscript } from "../../transcript/normaliser.js";
 

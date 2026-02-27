@@ -4,7 +4,7 @@
  * Integration tests — skipped automatically when ANTHROPIC_API_KEY is not set.
  */
 
-import { describe, it } from "node:test";
+import { describe, it } from "vitest";
 import assert from "node:assert/strict";
 import { enrichWithIndustryContext } from "../../transcript/enricher.js";
 import type { ExtractedProfile } from "../../transcript/extractor.js";
@@ -59,12 +59,11 @@ const BIOTECH_PROFILE: ExtractedProfile = {
   claimYear: "FY2024",
 };
 
+const skipIntegration = !process.env.ANTHROPIC_API_KEY;
+
 describe("enrichWithIndustryContext — integration", () => {
-  it(
+  it.skipIf(skipIntegration)(
     "returns enrichment for a software/AI profile",
-    {
-      skip: !process.env.ANTHROPIC_API_KEY ? "ANTHROPIC_API_KEY not set" : false,
-    },
     async () => {
       const enrichment = await enrichWithIndustryContext(SOFTWARE_PROFILE);
 
@@ -90,11 +89,8 @@ describe("enrichWithIndustryContext — integration", () => {
     }
   );
 
-  it(
+  it.skipIf(skipIntegration)(
     "returns enrichment for a biotech profile",
-    {
-      skip: !process.env.ANTHROPIC_API_KEY ? "ANTHROPIC_API_KEY not set" : false,
-    },
     async () => {
       const enrichment = await enrichWithIndustryContext(BIOTECH_PROFILE);
 
@@ -112,11 +108,8 @@ describe("enrichWithIndustryContext — integration", () => {
     }
   );
 
-  it(
+  it.skipIf(skipIntegration)(
     "returns a sector that reflects the input industry when no match found",
-    {
-      skip: !process.env.ANTHROPIC_API_KEY ? "ANTHROPIC_API_KEY not set" : false,
-    },
     async () => {
       const profile: ExtractedProfile = {
         industry: "Aquaculture Technology",

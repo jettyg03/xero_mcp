@@ -6,7 +6,7 @@
  *   — skipped automatically when ANTHROPIC_API_KEY is not set.
  */
 
-import { describe, it } from "node:test";
+import { describe, it } from "vitest";
 import assert from "node:assert/strict";
 import { scoreConfidence, extractRDProfile } from "../../transcript/extractor.js";
 import type { ExtractedProfile } from "../../transcript/extractor.js";
@@ -181,10 +181,11 @@ wear in controlled trials but haven't validated it on production runs yet.
 James: Company name is Precision Parts Australia Pty Ltd, based in Melbourne.
 `;
 
+const skipIntegration = !process.env.ANTHROPIC_API_KEY;
+
 describe("extractRDProfile — integration", () => {
-  it(
+  it.skipIf(skipIntegration)(
     "extracts profile from a software/AI transcript",
-    { skip: !process.env.ANTHROPIC_API_KEY ? "ANTHROPIC_API_KEY not set" : false },
     async () => {
       const profile = await extractRDProfile(SOFTWARE_TRANSCRIPT);
 
@@ -219,9 +220,8 @@ describe("extractRDProfile — integration", () => {
     }
   );
 
-  it(
+  it.skipIf(skipIntegration)(
     "extracts profile from a biotech transcript",
-    { skip: !process.env.ANTHROPIC_API_KEY ? "ANTHROPIC_API_KEY not set" : false },
     async () => {
       const profile = await extractRDProfile(BIOTECH_TRANSCRIPT);
 
@@ -239,9 +239,8 @@ describe("extractRDProfile — integration", () => {
     }
   );
 
-  it(
+  it.skipIf(skipIntegration)(
     "extracts profile from an advanced manufacturing transcript",
-    { skip: !process.env.ANTHROPIC_API_KEY ? "ANTHROPIC_API_KEY not set" : false },
     async () => {
       const profile = await extractRDProfile(MANUFACTURING_TRANSCRIPT);
 
@@ -260,9 +259,8 @@ describe("extractRDProfile — integration", () => {
     }
   );
 
-  it(
+  it.skipIf(skipIntegration)(
     "throws when API key is invalid",
-    { skip: !process.env.ANTHROPIC_API_KEY ? "ANTHROPIC_API_KEY not set" : false },
     async () => {
       await assert.rejects(
         () =>

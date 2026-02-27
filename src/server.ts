@@ -1,13 +1,17 @@
 /**
  * MCP server factory: creates server with stdio transport and tool registration.
- * All skills conform to: name, description, inputSchema, output with confidence, flagForReview, flagReason?.
+ * All skills conform to the ToolOutput contract (see src/types.ts).
  * Linear: BEN-10 (scaffold), BEN-11 (tool contract), BEN-27 (analyse_transcript).
  */
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
-
+import {
+  ingestXeroData,
+  ingestXeroDataShape,
+} from "./tools/ingest-xero-data.js";
+import { toToolText } from "./types.js";
 import { analyseTranscript } from "./transcript/index.js";
 
 const SERVER_NAME = "randd-tax-ai-mcp";
@@ -39,17 +43,30 @@ export function createServer(): McpServer {
       content: [
         {
           type: "text",
-          text: JSON.stringify({
+          text: toToolText({
             ok: true,
             server: SERVER_NAME,
             version: SERVER_VERSION,
             confidence: 1,
             flagForReview: false,
-            flagReason: undefined,
           }),
         },
       ],
     })
+  );
+
+  // ── Xero data ingestion ────────────────────────────────────────────────────
+  const clientId = process.env.XERO_CLIENT_ID ?? "";
+  const clientSecret = process.env.XERO_CLIENT_SECRET ?? "";
+
+  server.registerTool(
+    "ingest_xero_data",
+    {
+      description:
+        "Fetch and normalise P&L transactions from Xero for a given financial year, including receipt attachments.",
+      inputSchema: ingestXeroDataShape,
+    },
+    (input) => ingestXeroData(input, clientId, clientSecret)
   );
 
   // -------------------------------------------------------------------------
@@ -84,7 +101,7 @@ export function createServer(): McpServer {
           ),
       },
     },
-    async (args: z.infer<typeof analyseTranscriptToolInputSchema>): Promise<CallToolResult> => {
+    async (args): Promise<CallToolResult> => {
       const apiKey = process.env.ANTHROPIC_API_KEY;
 
       if (!apiKey) {

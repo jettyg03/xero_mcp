@@ -50,7 +50,7 @@ export function normaliseTransaction(
   const isForeign = raw.currency !== BASE_CURRENCY;
 
   return {
-    id: raw.id || `unknown-${Date.now()}`,
+    id: raw.id || uniqueFallbackId(),
     date: normaliseDate(raw.date),
     description: (raw.description || raw.reference || "No description").trim(),
     amount: Math.abs(raw.amount),
@@ -104,6 +104,11 @@ function normaliseDate(raw: string): string {
 
   // Strip time component if present
   return raw.split("T")[0] ?? raw;
+}
+
+/** Generate a unique fallback ID so batch normalisation never produces duplicate ids. */
+function uniqueFallbackId(): string {
+  return `unknown-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
 }
 
 /** Collect data-quality issues that should trigger flagForReview. */

@@ -84,7 +84,7 @@ export function createServer(): McpServer {
           ),
       },
     },
-    async (args): Promise<CallToolResult> => {
+    async (args: z.infer<typeof analyseTranscriptToolInputSchema>): Promise<CallToolResult> => {
       const apiKey = process.env.ANTHROPIC_API_KEY;
 
       if (!apiKey) {

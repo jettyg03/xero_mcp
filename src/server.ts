@@ -6,6 +6,10 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import {
+  ingestXeroData,
+  ingestXeroDataShape,
+} from "./tools/ingest-xero-data.js";
 import { toToolText } from "./types.js";
 
 const SERVER_NAME = "randd-tax-ai-mcp";
@@ -46,6 +50,20 @@ export function createServer(): McpServer {
         },
       ],
     })
+  );
+
+  // ── Xero data ingestion ────────────────────────────────────────────────────
+  const clientId = process.env.XERO_CLIENT_ID ?? "";
+  const clientSecret = process.env.XERO_CLIENT_SECRET ?? "";
+
+  server.registerTool(
+    "ingest_xero_data",
+    {
+      description:
+        "Fetch and normalise P&L transactions from Xero for a given financial year, including receipt attachments.",
+      inputSchema: ingestXeroDataShape,
+    },
+    (input) => ingestXeroData(input, clientId, clientSecret)
   );
 
   return server;

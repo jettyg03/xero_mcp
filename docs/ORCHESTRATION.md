@@ -24,7 +24,7 @@ Intake      Ingestion   Vendor      Categorise  Calculate   Generate
 
 | # | Stage | MCP Tool | Primary Output |
 |---|-------|----------|----------------|
-| 1 | Client Intake | `analyse_transcript` | `ClientRDProfile` |
+| 1 | Client Intake | `analyse_transcript` | `{ text: string }` |
 | 2 | Financial Ingestion | `ingest_xero_data` | `NormalisedTransaction[]` |
 | 3 | Vendor Research | `research_vendor` | `VendorProfile[]` |
 | 4 | Transaction Categorisation | `categorise_transaction` | `CategorisedTransaction[]` |

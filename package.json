@@ -9,7 +9,7 @@
     "start": "node dist/index.js",
     "dev": "tsc && node dist/index.js",
     "prepare": "npm run build",
-    "test": "tsc && node --test dist/tests/transcript/normaliser.test.js dist/tests/transcript/extractor.test.js dist/tests/transcript/enricher.test.js"
+    "test": "tsc && node --test 'dist/tests/**/*.test.js'"
   },
   "engines": {
     "node": ">=18"

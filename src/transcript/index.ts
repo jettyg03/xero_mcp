@@ -1,119 +1,38 @@
 /**
- * Transcript analysis pipeline: normalise → extract → [enrich].
- * Exported for direct use by the analyse_transcript MCP tool handler.
- * Linear: BEN-24, BEN-25, BEN-26.
+ * Transcript normalisation: accepts multi-format input, returns plain text.
+ * Extraction and enrichment have been moved to the calling skill (CoWork).
+ * Linear: BEN-40.
  */
 
-export type { ClientRDProfile, IndustryEnrichment, RDActivity, SpendingItem, PersonnelMember } from "./types.js";
 export type { TranscriptFormat } from "./normaliser.js";
-
-import type { ClientRDProfile } from "./types.js";
 import { normaliseTranscript, type TranscriptFormat } from "./normaliser.js";
-import { extractRDProfile, scoreConfidence } from "./extractor.js";
-import { enrichWithIndustryContext } from "./enricher.js";
 
-export interface AnalyseTranscriptOptions {
+export interface NormaliseTranscriptOptions {
   format?: TranscriptFormat;
-  /** Whether to run industry enrichment after extraction (default: true). */
-  enrich?: boolean;
-  /** Anthropic API key. Falls back to ANTHROPIC_API_KEY env var. */
-  apiKey?: string;
 }
 
-export interface AnalyseTranscriptResult {
-  profile: ClientRDProfile;
-  confidence: number;
-  flagForReview: boolean;
-  flagReason?: string;
+export interface NormaliseTranscriptResult {
+  text: string;
 }
 
 const MIN_TRANSCRIPT_LENGTH = 50;
 
 /**
- * Run the full transcript analysis pipeline:
- * 1. Normalise to plain text (handles txt, whisper_json, docx_base64)
- * 2. Extract structured R&D profile via Claude
- * 3. Optionally enrich with industry-specific ATO context
- *
- * Enrichment failures are non-fatal: the profile is returned without
- * enrichment and flagged for human review.
+ * Normalise a transcript from any supported format to plain text.
+ * Throws if the resulting text is too short to be useful.
  */
-export async function analyseTranscript(
+export async function normaliseForAnalysis(
   content: string,
-  options: AnalyseTranscriptOptions = {}
-): Promise<AnalyseTranscriptResult> {
-  const { format = "txt", enrich = true, apiKey } = options;
+  options: NormaliseTranscriptOptions = {}
+): Promise<NormaliseTranscriptResult> {
+  const { format = "txt" } = options;
+  const text = await normaliseTranscript(content, format);
 
-  // Step 1: Normalise
-  const plainText = await normaliseTranscript(content, format);
-
-  if (plainText.length < MIN_TRANSCRIPT_LENGTH) {
-    return {
-      profile: emptyProfile(),
-      confidence: 0,
-      flagForReview: true,
-      flagReason: `Transcript too short (${plainText.length} chars). Minimum is ${MIN_TRANSCRIPT_LENGTH}.`,
-    };
+  if (text.length < MIN_TRANSCRIPT_LENGTH) {
+    throw new Error(
+      `Transcript too short (${text.length} chars). Minimum is ${MIN_TRANSCRIPT_LENGTH}.`
+    );
   }
 
-  // Step 2: Extract structured profile
-  const extracted = await extractRDProfile(plainText, { apiKey });
-
-  // Step 3: Enrich (optional)
-  let industryEnrichment: ClientRDProfile["industryEnrichment"] = undefined;
-  if (enrich) {
-    try {
-      industryEnrichment = await enrichWithIndustryContext(extracted, {
-        apiKey,
-      });
-    } catch (err) {
-      // Enrichment failure is non-fatal; caller will see flagForReview=true
-      process.stderr.write(
-        `analyse_transcript: enrichment failed — ${err instanceof Error ? err.message : String(err)}\n`
-      );
-    }
-  }
-
-  const profile: ClientRDProfile = {
-    ...extracted,
-    industryEnrichment,
-    extractedAt: new Date().toISOString(),
-  };
-
-  const scoring = scoreConfidence(extracted);
-
-  // Downgrade confidence slightly if enrichment was requested but failed
-  const confidence =
-    enrich && !industryEnrichment
-      ? Math.max(0, scoring.confidence - 0.1)
-      : scoring.confidence;
-
-  const flagReason = [
-    scoring.flagReason,
-    enrich && !industryEnrichment ? "industry enrichment unavailable" : null,
-  ]
-    .filter(Boolean)
-    .join("; ");
-
-  return {
-    profile,
-    confidence,
-    flagForReview: confidence < 0.6 || (enrich && !industryEnrichment),
-    flagReason: flagReason || undefined,
-  };
-}
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function emptyProfile(): ClientRDProfile {
-  return {
-    industry: "Unknown",
-    rdActivities: [],
-    technologies: [],
-    keyPersonnel: [],
-    spendingDiscussions: [],
-    extractedAt: new Date().toISOString(),
-  };
+  return { text };
 }

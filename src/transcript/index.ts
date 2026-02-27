@@ -69,7 +69,7 @@ export async function analyseTranscript(
     } catch (err) {
       // Enrichment failure is non-fatal; caller will see flagForReview=true
       process.stderr.write(
-        `analyse_transcript: enrichment failed — ${String(err)}\n`
+        `analyse_transcript: enrichment failed — ${err instanceof Error ? err.message : String(err)}\n`
       );
     }
   }

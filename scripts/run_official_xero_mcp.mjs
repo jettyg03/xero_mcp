@@ -28,14 +28,14 @@ const officialRedirectUri = pickEnv(
 const officialTenantId = process.env.XERO_OFFICIAL_TENANT_ID ?? "";
 
 if (!officialClientId || !officialClientSecret) {
-  process.stderr.write(
-    [
-      "Missing Xero credentials for the official Xero MCP server.",
-      "Set XERO_OFFICIAL_CLIENT_ID and XERO_OFFICIAL_CLIENT_SECRET (recommended),",
-      "or set XERO_CLIENT_ID and XERO_CLIENT_SECRET.",
-      "",
-    ].join("\n")
-  );
+    console.error(
+      [
+        "Missing Xero credentials for the official Xero MCP server.",
+        "Set XERO_OFFICIAL_CLIENT_ID and XERO_OFFICIAL_CLIENT_SECRET (recommended),",
+        "or set XERO_CLIENT_ID and XERO_CLIENT_SECRET.",
+        "",
+      ].join("\n")
+    );
   process.exit(1);
 }
 

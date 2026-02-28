@@ -19,7 +19,10 @@ import { normaliseTransactions } from "../xero/normalise.js";
 // ---------------------------------------------------------------------------
 
 export const ingestXeroDataShape = {
-  tenantId: z.string().describe("Xero tenant/organisation ID"),
+  tenantId: z
+    .string()
+    .min(1)
+    .describe("Xero tenant/organisation ID (required per call)"),
   financialYear: z
     .number()
     .int()

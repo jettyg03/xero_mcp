@@ -1,14 +1,16 @@
 /**
  * Xero OAuth 2.0 authentication and token management.
- * Supports multi-tenant (per-client) token storage and automatic refresh.
- * Linear: BEN-15.
+ * Supports multi-tenant (per-tenantId) token storage and automatic refresh.
+ * Linear: BEN-15, BEN-44.
  */
 
 import type { XeroTokenSet } from "./types.js";
+import { createTokenStoreFromEnv } from "./token-store.js";
 
 const XERO_AUTH_URL =
   "https://login.xero.com/identity/connect/authorize";
 const XERO_TOKEN_URL = "https://identity.xero.com/connect/token";
+const XERO_CONNECTIONS_URL = "https://api.xero.com/connections";
 
 const XERO_SCOPES = [
   "openid",
@@ -23,10 +25,12 @@ const XERO_SCOPES = [
 const REFRESH_TOKEN_BUFFER_MS = 60 * 1000;
 
 // ---------------------------------------------------------------------------
-// In-memory token store keyed by tenantId.
-// Replace with a persistent, encrypted store (e.g. KMS-backed DB) in production.
+// Token store keyed by tenantId (encrypted-at-rest when configured).
 // ---------------------------------------------------------------------------
-const tokenStore = new Map<string, XeroTokenSet>();
+const tokenStore = createTokenStoreFromEnv();
+
+/** In-flight refresh de-dupe per tenantId. */
+const refreshInFlight = new Map<string, Promise<XeroTokenSet>>();
 
 export function buildAuthUrl(
   clientId: string,
@@ -63,16 +67,60 @@ export async function exchangeCodeForToken(
     tenantId,
   };
 
-  tokenStore.set(tenantId, token);
+  tokenStore.set(token);
   return token;
 }
 
 export function storeToken(token: XeroTokenSet): void {
-  tokenStore.set(token.tenantId, token);
+  tokenStore.set(token);
 }
 
 export function hasToken(tenantId: string): boolean {
   return tokenStore.has(tenantId);
+}
+
+export function listTokenTenants(): string[] {
+  return tokenStore.listTenantIds();
+}
+
+export interface XeroConnection {
+  id: string;
+  tenantId: string;
+  tenantName: string;
+  tenantType: string;
+  createdDateUtc?: string;
+  updatedDateUtc?: string;
+}
+
+/**
+ * List connected Xero tenants for the current access token.
+ * Useful for onboarding to discover the `tenantId` value to store against.
+ */
+export async function listConnections(accessToken: string): Promise<XeroConnection[]> {
+  const res = await fetch(XERO_CONNECTIONS_URL, {
+    headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/json" },
+  });
+  if (!res.ok) {
+    throw new Error(
+      `Xero connections request failed: ${res.status} ${await res.text()}`
+    );
+  }
+  const data = (await res.json()) as Array<{
+    id?: string;
+    tenantId?: string;
+    tenantName?: string;
+    tenantType?: string;
+    createdDateUtc?: string;
+    updatedDateUtc?: string;
+  }>;
+  return (data ?? []).map((c) => ({
+    id: c.id ?? "",
+    tenantId: c.tenantId ?? "",
+    tenantName: c.tenantName ?? "",
+    tenantType: c.tenantType ?? "",
+    createdDateUtc: c.createdDateUtc,
+    updatedDateUtc: c.updatedDateUtc,
+  }));
 }
 
 /**
@@ -87,17 +135,19 @@ export async function getValidAccessToken(
   const token = tokenStore.get(tenantId);
   if (!token) {
     throw new Error(
-      `No token found for tenant "${tenantId}". Complete the Xero OAuth flow first.`
+      `No token found for tenant "${tenantId}". Onboard this tenant via the Xero OAuth flow first.`
     );
   }
 
   if (Date.now() >= token.expiresAt - REFRESH_TOKEN_BUFFER_MS) {
-    const refreshed = await doRefresh(
-      tenantId,
-      token.refreshToken,
-      clientId,
-      clientSecret
-    );
+    const existing = refreshInFlight.get(tenantId);
+    const refreshPromise =
+      existing ??
+      doRefresh(tenantId, token.refreshToken, clientId, clientSecret).finally(
+        () => refreshInFlight.delete(tenantId)
+      );
+    if (!existing) refreshInFlight.set(tenantId, refreshPromise);
+    const refreshed = await refreshPromise;
     return refreshed.accessToken;
   }
 
@@ -126,7 +176,7 @@ async function doRefresh(
     tenantId,
   };
 
-  tokenStore.set(tenantId, refreshed);
+  tokenStore.set(refreshed);
   return refreshed;
 }
 

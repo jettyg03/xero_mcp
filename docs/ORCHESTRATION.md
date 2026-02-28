@@ -1,16 +1,12 @@
 # R&D Tax AI — Orchestration Flow & Data Pipeline
 
-This document describes the end-to-end orchestration of the R&D Tax AI agent — how Claude invokes each skill in sequence, how data is passed between skills, and where human review checkpoints sit.
+Design reference for tool implementers. Describes the end-to-end pipeline, the I/O contract between each stage, and the human review checkpoint rules.
+
+> **Orchestration is the agent's responsibility.** Claude (CoWork) holds the pipeline state, decides which tool to call next, evaluates confidence, and pauses for human review. The MCP server exposes only atomic, stateless tools.
+>
+> For the agent-side skill instructions, see [`orchestration.md`](https://github.com/jettyg03/r-d_ti_ai_/blob/main/orchestration.md) in the `r-d_ti_ai` repo.
 
 Linear: **BEN-12** | Project: R&D Tax AI — MCP Server & Architecture
-
----
-
-## Overview
-
-The pipeline transforms two raw inputs — a client meeting transcript and a Xero financial export — into a complete, lodgeable RDTI submission document. Claude orchestrates the pipeline by invoking MCP tools in sequence, propagating structured outputs from one stage as inputs to the next.
-
-Each stage emits a `confidence` score and a `flagForReview` flag. These drive checkpoint decisions: low confidence or flagged outputs always pause for human review before the pipeline advances.
 
 ---
 
@@ -24,14 +20,12 @@ Intake      Ingestion   Vendor      Categorise  Calculate   Generate
 
 | # | Stage | MCP Tool | Primary Output |
 |---|-------|----------|----------------|
-| 1 | Client Intake | `analyse_transcript` | `{ text: string }` |
+| 1 | Client Intake | `analyse_transcript` | `ClientRDProfile` |
 | 2 | Financial Ingestion | `ingest_xero_data` | `NormalisedTransaction[]` |
 | 3 | Vendor Research | `research_vendor` | `VendorProfile[]` |
 | 4 | Transaction Categorisation | `categorise_transaction` | `CategorisedTransaction[]` |
 | 5 | Financial Calculation | `calculate_financials` | `FinancialSummary` |
 | 6 | Submission Generation | `generate_submission` | `SubmissionDocument` |
-
-A human review checkpoint follows every stage. Checkpoints after stages 3 and 4 are conditional (see [Checkpoint Rules](#checkpoint-rules)).
 
 ---
 
@@ -96,51 +90,24 @@ flowchart TD
 
 ---
 
-## Stage Details
+## Stage I/O Reference
 
 ### Stage 1 — Client Intake
 
-**Tool:** `analyse_transcript` (normalisation only — see BEN-40)
+**Tool:** `analyse_transcript`
 
-Stage 1 is a two-step process:
-
-1. **MCP tool call** — normalises the raw input to plain text
-2. **CoWork extraction** — Claude reads the `analyse_transcript` skill doc and extracts `ClientRDProfile` directly from the normalised text
+Stage 1 normalises the raw transcript to plain text. Claude then extracts `ClientRDProfile` directly from the normalised text using the `analyse_transcript` skill doc (see `r-d_ti_ai`).
 
 **Tool inputs:**
 
-| Field | Source | Notes |
-|-------|--------|-------|
-| `transcript` | User-supplied | Raw text, Whisper JSON, or base64 DOCX |
-| `format` | User-supplied | `txt` \| `whisper_json` \| `docx_base64` |
+| Field | Type | Notes |
+|-------|------|-------|
+| `transcript` | string | Raw text, Whisper JSON, or base64 DOCX |
+| `format` | enum | `txt` \| `whisper_json` \| `docx_base64` |
 
-**Tool output:** Plain text
+**Tool output:** `{ text: string }` — normalised plain text.
 
-```typescript
-{
-  text: string   // Normalised plain-text transcript
-}
-```
-
-**CoWork extraction output:** `ClientRDProfile`
-
-```typescript
-{
-  clientName?: string,
-  industry: string,
-  rdActivities: RDActivity[],
-  technologies: string[],
-  keyPersonnel: PersonnelMember[],
-  spendingDiscussions: SpendingItem[],
-  claimYear?: string,
-  extractedAt: string,      // ISO 8601
-  confidence: number,        // 0.3–0.9 per skill doc scoring rules
-  flagForReview: boolean,
-  flagReason?: string
-}
-```
-
-**Checkpoint trigger:** Always — this is the foundation of the claim. Human must confirm that identified R&D activities, technical challenges, and financial year are accurate before the financial pipeline runs.
+**Claude extraction output:** `ClientRDProfile + { confidence, flagForReview, flagReason? }`
 
 ---
 
@@ -150,77 +117,50 @@ Stage 1 is a two-step process:
 
 **Inputs:**
 
-| Field | Source | Notes |
-|-------|--------|-------|
-| `tenantId` | User-supplied | Xero organisation ID |
-| `financialYear` | From `ClientRDProfile.claimYear` | Parsed to integer (e.g. "FY2024" → `2024`) |
-| `includeAttachments` | Config | `true` by default — fetches receipts/invoices |
+| Field | Type | Source |
+|-------|------|--------|
+| `tenantId` | string | User-supplied |
+| `financialYear` | number | Parsed from `ClientRDProfile.claimYear` |
+| `includeAttachments` | boolean | `true` (default) |
 
-**Output:** `NormalisedTransaction[]` (wrapped in `CallToolResult`)
+**Output:**
 
-```typescript
+```
 {
   transactions: NormalisedTransaction[],
   count: number,
   flaggedCount: number,
-  confidence: number,           // Aggregate across all transactions
-  flagForReview: boolean,
-  flagReason?: string
-}
-```
-
-**Checkpoint trigger:** Always, plus mandatory if `flaggedCount > 0`. Human reviews count, date range coverage, and any flagged transactions (zero amounts, missing descriptions, foreign currency).
-
----
-
-### Stage 3 — Vendor Research
-
-**Tool:** `research_vendor` *(BEN-20 → BEN-23, not yet implemented)*
-
-**Inputs:** Extracted from Stage 2 output — deduplicated list of unique `contactName` values from `NormalisedTransaction[]`.
-
-**Tool called per vendor:**
-
-| Field | Source |
-|-------|--------|
-| `vendorName` | `transaction.contactName` |
-| `vendorDomain` | Inferred from vendor name (optional) |
-| `industry` | From `ClientRDProfile.industry` |
-
-**Output:** `VendorProfile[]` stored as a map `vendorName → VendorProfile`
-
-```typescript
-{
-  vendorName: string,
-  isRdEligible: boolean,
-  rationale: string,
   confidence: number,
   flagForReview: boolean,
   flagReason?: string
 }
 ```
 
-**Parallelism:** All vendor lookups are dispatched concurrently (via `Promise.allSettled`). Failed lookups produce a low-confidence stub, not a pipeline failure.
+---
 
-**Checkpoint trigger:** Conditional — only if any `VendorProfile.flagForReview === true` or `confidence < 0.7`. Human reviews misidentified vendors or those where eligibility determination was uncertain.
+### Stage 3 — Vendor Research
+
+**Tool:** `research_vendor` *(BEN-20 → BEN-23)*
+
+Called once per unique `contactName` from `NormalisedTransaction[]`. Concurrent via `Promise.allSettled` — failures produce a low-confidence stub, not a pipeline halt.
+
+**Input per vendor:** `{ vendorName, industry }`
+
+**Output:** `VendorProfile` — `{ vendorName, isRdEligible, rationale, confidence, flagForReview, flagReason? }`
 
 ---
 
 ### Stage 4 — Transaction Categorisation
 
-**Tool:** `categorise_transaction` *(BEN-28 → BEN-31, not yet implemented)*
+**Tool:** `categorise_transaction` *(BEN-28 → BEN-31)*
 
-**Inputs:** Called once per `NormalisedTransaction`.
+Called once per transaction.
 
-| Field | Source |
-|-------|--------|
-| `transaction` | `NormalisedTransaction` from Stage 2 |
-| `clientProfile` | `ClientRDProfile` from Stage 1 |
-| `vendorProfile` | Matching `VendorProfile` from Stage 3 (if available) |
+**Input:** `{ transaction: NormalisedTransaction, clientProfile: ClientRDProfile, vendorProfile?: VendorProfile }`
 
 **Output:** `CategorisedTransaction`
 
-```typescript
+```
 {
   transactionId: string,
   category: "eligible_rd" | "supporting_rd" | "non_eligible" | "review_required",
@@ -231,180 +171,73 @@ Stage 1 is a two-step process:
 }
 ```
 
-**Category definitions:**
-
-| Category | Meaning |
-|----------|---------|
-| `eligible_rd` | Directly incurred in conducting core R&D activities |
-| `supporting_rd` | Directly related supporting activities (ATO TR 2019/1 §§ 66–80) |
-| `non_eligible` | Routine development, sales, admin, or excluded expenditure |
-| `review_required` | Ambiguous — human decision required |
-
-**Checkpoint trigger:** Conditional — only if any transaction is `review_required`, `flagForReview === true`, or batch confidence < 0.7. Human spot-checks the eligible/ineligible split and resolves ambiguous items.
-
 ---
 
 ### Stage 5 — Financial Calculation
 
-**Tool:** `calculate_financials` *(BEN-32 → BEN-34, not yet implemented)*
+**Tool:** `calculate_financials` *(BEN-32 → BEN-34)*
 
-**Inputs:**
-
-| Field | Source |
-|-------|--------|
-| `categorisedTransactions` | `CategorisedTransaction[]` from Stage 4 |
-| `clientProfile` | `ClientRDProfile` from Stage 1 |
+**Input:** `{ categorisedTransactions: CategorisedTransaction[], clientProfile: ClientRDProfile }`
 
 **Output:** `FinancialSummary`
 
-```typescript
+```
 {
-  totalRdExpenditure: number,      // Sum of eligible_rd + supporting_rd amounts
+  totalRdExpenditure: number,
   currency: "AUD",
-  breakdown: {
-    eligible_rd: number,
-    supporting_rd: number,
-    non_eligible: number
-  },
-  estimatedRdtiOffset: number,     // At applicable rate (43.5% / 38.5%)
-  claimYear: string,               // e.g. "FY2024"
+  breakdown: { eligible_rd, supporting_rd, non_eligible },
+  estimatedRdtiOffset: number,   // 43.5% (<$20M turnover) or 38.5%
+  claimYear: string,
   confidence: number,
   flagForReview: boolean,
   flagReason?: string
 }
 ```
-
-**Checkpoint trigger:** Always — the financial totals directly determine the claim value. Human verifies expenditure amounts, the eligible/ineligible split, and the estimated RDTI offset before the submission is drafted.
 
 ---
 
 ### Stage 6 — Submission Generation
 
-**Tool:** `generate_submission` *(BEN-35 → BEN-39, not yet implemented)*
+**Tool:** `generate_submission` *(BEN-35 → BEN-39)*
 
-**Inputs:**
-
-| Field | Source |
-|-------|--------|
-| `clientProfile` | `ClientRDProfile` from Stage 1 |
-| `financialSummary` | `FinancialSummary` from Stage 5 |
-| `categorisedTransactions` | `CategorisedTransaction[]` from Stage 4 |
+**Input:** `{ clientProfile: ClientRDProfile, financialSummary: FinancialSummary, categorisedTransactions: CategorisedTransaction[] }`
 
 **Output:** `SubmissionDocument`
 
-```typescript
+```
 {
   title: string,
   sections: {
-    companyOverview: string,
-    rdActivities: string,         // Narrative per activity
-    technicalChallenge: string,   // Why each activity involved genuine uncertainty
-    expenditureSummary: string,   // Human-readable financial breakdown
-    atoSchedules: string          // Machine-readable schedules for lodgement
+    companyOverview, rdActivities, technicalChallenge,
+    expenditureSummary, atoSchedules
   },
-  generatedAt: string,            // ISO 8601
+  generatedAt: string,
   confidence: number,
   flagForReview: boolean,
   flagReason?: string
 }
 ```
 
-**Checkpoint trigger:** Always — this is the final mandatory review. Human reads the complete submission before it is lodged. No automated action follows approval; the document is handed to the preparer.
-
 ---
 
 ## Checkpoint Rules
 
-### Trigger conditions
+These rules are enforced by the agent, not the MCP server. Documented here for reference when designing tools — tools must emit `confidence` and `flagForReview` to enable these decisions.
 
-| Checkpoint | Always fires | Fires conditionally when |
-|------------|-------------|--------------------------|
-| CP1 (after Stage 1) | ✅ | — |
-| CP2 (after Stage 2) | ✅ | `flaggedCount > 0` triggers additional item-level review |
-| CP3 (after Stage 3) | | Any `VendorProfile.flagForReview` or batch confidence < 0.7 |
-| CP4 (after Stage 4) | | Any `category === "review_required"` or batch confidence < 0.7 |
-| CP5 (after Stage 5) | ✅ | — |
-| CP6 (after Stage 6) | ✅ | — |
-
-### Checkpoint decisions
-
-| Decision | Effect |
-|----------|--------|
-| `approved` | Pipeline advances to the next stage |
-| `modified` | Human edits the output in place; pipeline advances with modified data |
-| `rejected` | Stage is re-run (optionally with revised inputs) |
-
-### Checkpoint prompt text
-
-```
-CP1 — Review the extracted R&D profile. Confirm R&D activities, technical
-      challenges, key personnel, and financial year are accurate before
-      financial data is ingested.
-
-CP2 — Review ingested Xero transactions. Check flagged items (zero amounts,
-      missing descriptions, foreign currency). Confirm the date range covers
-      the full financial year.
-
-CP3 — Review vendor profiles. Flag any vendors where the eligibility
-      determination looks wrong or where more context is needed.
-
-CP4 — Review transaction categorisations. Resolve all "review_required"
-      items. Spot-check a sample of eligible and non-eligible categorisations.
-
-CP5 — Review the financial summary. Verify total eligible expenditure,
-      eligible/ineligible split, and estimated RDTI offset before the
-      submission narrative is drafted.
-
-CP6 — Final review: read the complete submission document. Approve to
-      hand off to the tax preparer. Reject to revise any section.
-```
-
----
-
-## Data Carried Through the Pipeline
-
-The `PipelineContext` object is the single shared state that Claude maintains across all stages. It accumulates outputs from each stage and is used to supply context inputs to later stages.
-
-```typescript
-interface PipelineContext {
-  clientId: string;
-  financialYear: number;
-  startedAt: string;                                   // ISO 8601
-
-  // Populated as the pipeline progresses
-  clientProfile?:             AnalyseTranscriptResult;
-  transactions?:              NormalisedTransaction[];
-  vendorProfiles?:            Map<string, VendorProfile>;
-  categorisedTransactions?:   CategorisedTransaction[];
-  financialSummary?:          FinancialSummary;
-  submissionDocument?:        SubmissionDocument;
-
-  // Stage tracking
-  stages:      Partial<Record<PipelineStage, PipelineStageStatus>>;
-  checkpoints: HumanCheckpoint[];
-}
-```
-
-See [`src/orchestration/types.ts`](../src/orchestration/types.ts) for the full type definitions.
-
----
-
-## Error Handling
-
-| Scenario | Behaviour |
-|----------|-----------|
-| Stage returns `isError: true` | Pipeline halts; Claude surfaces the error to the user with context |
-| Stage confidence < 0.5 | Force checkpoint before advancing |
-| Vendor research fails for a vendor | Log stub with `flagForReview: true`; continue with remaining vendors |
-| Checkpoint rejected | Re-run the stage; optionally accept revised user inputs |
-| Attachment fetch fails | Transaction proceeds without attachments; individual transaction flagged |
+| Checkpoint | Fires when |
+|------------|-----------|
+| CP1 — after Stage 1 | Always |
+| CP2 — after Stage 2 | Always; `flaggedCount > 0` adds item-level review |
+| CP3 — after Stage 3 | Any `VendorProfile.flagForReview` or batch confidence < 0.7 |
+| CP4 — after Stage 4 | Any `category === "review_required"` or batch confidence < 0.7 |
+| CP5 — after Stage 5 | Always |
+| CP6 — after Stage 6 | Always (mandatory before filing) |
 
 ---
 
 ## References
 
-- **RDTI legislation:** Income Tax Assessment Act 1997, Div 355
-- **ATO guidance:** Tax Ruling TR 2019/1 — *Income tax: research and development tax incentive*
+- **Agent skill instructions:** [`orchestration.md`](https://github.com/jettyg03/r-d_ti_ai_/blob/main/orchestration.md) in `r-d_ti_ai`
 - **Tool contract:** [`docs/TOOL_CONTRACT.md`](./TOOL_CONTRACT.md)
-- **Skill definitions:** `r-d_ti_ai` repo — `analyse_transcript.md` and forthcoming skill `.md` files
+- **ATO guidance:** Tax Ruling TR 2019/1
 - **E2E integration test:** BEN-14

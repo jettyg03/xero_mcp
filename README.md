@@ -15,5 +15,6 @@ npm start   # stdio transport for Claude CoWork / Cursor
 - **[docs/CONTEXT.md](./docs/CONTEXT.md)** — Product context, Linear links.
 - **[docs/TOOL_CONTRACT.md](./docs/TOOL_CONTRACT.md)** — Tool registration pattern (BEN-11).
 - **[docs/XERO_MULTI_TENANT_ONBOARDING.md](./docs/XERO_MULTI_TENANT_ONBOARDING.md)** — Multi-tenant Xero OAuth onboarding + token storage (BEN-44).
+- **[docs/XERO_OFFICIAL_MCP_COMPANION.md](./docs/XERO_OFFICIAL_MCP_COMPANION.md)** — Hybrid setup: run the official Xero MCP server alongside `ingest_xero_data` (BEN-43).
 
 Skill-definition .md files live in the **r-d_ti_ai** repo.

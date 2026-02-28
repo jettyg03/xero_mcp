@@ -60,7 +60,7 @@ Under the hood this executes `scripts/run_official_xero_mcp.mjs`, which maps `XE
 
 Configure **two** MCP servers in your client:
 
-- **Custom R&D Tax AI MCP (this repo)**: command `node`, args `["/absolute/path/to/dist/index.js"]`
+- **Custom R&D Tax AI MCP (this repo)**: command `node`, args `["<absolute-path-to-repo>/dist/index.js"]`
 - **Official Xero MCP**: command `npm`, args `["run","-s","official:xero"]` (or `node scripts/run_official_xero_mcp.mjs`)
 
 Keep them as separate server entries so tool names and env vars remain isolated.

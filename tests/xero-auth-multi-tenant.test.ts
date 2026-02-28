@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import os from "node:os";
 
 type AuthModule = typeof import("../src/xero/auth.js");
 
@@ -10,12 +11,21 @@ function randomKeyB64(): string {
 }
 
 function tmpStorePath(): string {
-  return path.join(process.cwd(), `.tmp_xero_tokens_${crypto.randomUUID()}.enc`);
+  return path.join(os.tmpdir(), `.tmp_xero_tokens_${crypto.randomUUID()}.enc`);
 }
 
 describe("xero auth multi-tenant token store", () => {
   let storePath: string;
   let auth: AuthModule;
+
+  async function waitFor(predicate: () => boolean, timeoutMs = 500): Promise<void> {
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      if (predicate()) return;
+      await new Promise((r) => setTimeout(r, 5));
+    }
+    throw new Error("Timed out waiting for condition");
+  }
 
   beforeEach(async () => {
     vi.restoreAllMocks();
@@ -30,7 +40,25 @@ describe("xero auth multi-tenant token store", () => {
     delete process.env.XERO_TOKEN_ENCRYPTION_KEY;
     delete process.env.XERO_TOKEN_STORE_PATH;
     vi.unstubAllGlobals();
-    if (fs.existsSync(storePath)) fs.unlinkSync(storePath);
+    // Best-effort cleanup: async flush may leave temp files behind.
+    const dir = path.dirname(storePath);
+    const base = path.basename(storePath);
+    try {
+      if (fs.existsSync(storePath)) fs.unlinkSync(storePath);
+      if (fs.existsSync(dir)) {
+        fs.readdirSync(dir).forEach((file) => {
+          if (file === base || file.startsWith(`${base}.tmp.`)) {
+            try {
+              fs.unlinkSync(path.join(dir, file));
+            } catch {
+              // ignore
+            }
+          }
+        });
+      }
+    } catch {
+      // ignore
+    }
   });
 
   it("persists tokens encrypted-at-rest and reloads them on module import", async () => {
@@ -41,7 +69,7 @@ describe("xero auth multi-tenant token store", () => {
       expiresAt: Date.now() + 60_000,
     });
 
-    expect(fs.existsSync(storePath)).toBe(true);
+    await waitFor(() => fs.existsSync(storePath) && fs.statSync(storePath).size > 0);
     const onDisk = fs.readFileSync(storePath, "utf8");
     expect(onDisk).not.toContain("access-a");
     expect(onDisk).not.toContain("refresh-a");
@@ -86,6 +114,13 @@ describe("xero auth multi-tenant token store", () => {
       return {
         ok: true,
         status: 200,
+        async text() {
+          return JSON.stringify({
+            access_token: `new-access-for-${rt}`,
+            refresh_token: `new-refresh-for-${rt}`,
+            expires_in: 1800,
+          });
+        },
         async json() {
           return {
             access_token: `new-access-for-${rt}`,
@@ -122,12 +157,12 @@ describe("xero auth multi-tenant token store", () => {
     const fetchMock = vi.fn(async () => ({
       ok: true,
       status: 200,
-      async json() {
-        return {
+      async text() {
+        return JSON.stringify({
           access_token: "new-access",
           refresh_token: "new-refresh",
           expires_in: 1800,
-        };
+        });
       },
     }));
     vi.stubGlobal("fetch", fetchMock as any);

@@ -23,12 +23,14 @@ Because the server runs over **stdio** (not HTTP), onboarding is an operational 
    - Xero redirects to your configured redirect URI with `?code=...&state=...`.
 
 3. **Exchange `code` for tokens**
-   - Call `exchangeCodeForToken(code, redirectUri, clientId, clientSecret, tenantId)`.
-   - The token is stored **encrypted at rest** keyed by `tenantId`.
+   - Call `exchangeCodeForToken(code, redirectUri, clientId, clientSecret)`.
+   - This returns `{ accessToken, refreshToken, expiresAt }`.
 
 4. **Discover / confirm the `tenantId`**
    - Use `listConnections(accessToken)` to list connected tenants for the token and find the `tenantId` that corresponds to the client’s organisation.
-   - Store the token under that `tenantId`.
+   - Store the token under that `tenantId` using `storeToken({ tenantId, ...exchanged })`.
+
+> Note: because this MCP server is **stdio-only**, you’ll typically run the OAuth redirect/callback handler outside of this server (e.g. a tiny one-off local script or a small hosted callback endpoint) to capture the `code` parameter.
 
 ## What gets stored
 

@@ -66,6 +66,8 @@ class EncryptedFileTokenStore implements TokenStore {
   private readonly map = new Map<string, XeroTokenSet>();
   private readonly filePath: string;
   private readonly key: Buffer;
+  private flushChain: Promise<void> = Promise.resolve();
+  private lastFlushError: unknown = undefined;
 
   constructor(filePath: string, key: Buffer) {
     this.filePath = filePath;
@@ -81,18 +83,18 @@ class EncryptedFileTokenStore implements TokenStore {
   }
   set(token: XeroTokenSet): void {
     this.map.set(token.tenantId, token);
-    this.flushToDisk();
+    this.queueFlushToDisk();
   }
   delete(tenantId: string): void {
     this.map.delete(tenantId);
-    this.flushToDisk();
+    this.queueFlushToDisk();
   }
   listTenantIds(): string[] {
     return [...this.map.keys()];
   }
 
   // -------------------------------------------------------------------------
-  // Disk IO (sync, small files)
+  // Disk IO
   // -------------------------------------------------------------------------
 
   private loadFromDiskIfPresent(): void {
@@ -126,7 +128,19 @@ class EncryptedFileTokenStore implements TokenStore {
     });
   }
 
-  private flushToDisk(): void {
+  private queueFlushToDisk(): void {
+    // Chain writes to avoid concurrent flushes. Do not throw from here since
+    // callers are typically on the hot path (token refresh / tool calls).
+    this.flushChain = this.flushChain
+      .then(async () => {
+        await this.flushToDiskOnce();
+      })
+      .catch((err) => {
+        this.lastFlushError = err;
+      });
+  }
+
+  private async flushToDiskOnce(): Promise<void> {
     const payload: PersistedPayloadV1 = {
       version: 1,
       updatedAt: Date.now(),
@@ -148,11 +162,14 @@ class EncryptedFileTokenStore implements TokenStore {
     };
 
     const dir = path.dirname(this.filePath);
-    fs.mkdirSync(dir, { recursive: true });
+    await fs.promises.mkdir(dir, { recursive: true });
 
     const tmp = `${this.filePath}.tmp.${crypto.randomUUID()}`;
-    fs.writeFileSync(tmp, JSON.stringify(envelope), { encoding: "utf8", mode: 0o600 });
-    fs.renameSync(tmp, this.filePath);
+    await fs.promises.writeFile(tmp, JSON.stringify(envelope), {
+      encoding: "utf8",
+      mode: 0o600,
+    });
+    await fs.promises.rename(tmp, this.filePath);
   }
 }
 

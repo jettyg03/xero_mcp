@@ -16,7 +16,7 @@ Stage 2 (`ingest_xero_data`) requires:
 
 - **P&L transaction export**: fetch transaction-level items for a given AU financial year (Jul–Jun), suitable for downstream categorisation.
 - **Attachment retrieval**: fetch attached receipts/invoices per transaction (Xero Attachments API).
-- **Tenant model**: either (a) support switching between client organisations at runtime (per-call tenant selection), **or** (b) run **one MCP instance per client organisation** and treat tenant as process-scoped configuration. *(This record assumes option (b) is acceptable.)*
+- **Tenant model**: **support switching between client organisations at runtime (per-call tenant selection)**.
 - **Data normalisation**: map raw Xero responses into our internal schema with consistent dates/currency handling and review flags.
 - **ToolOutput contract**: return machine-readable JSON including `confidence` and review flags (see `docs/TOOL_CONTRACT.md`).
 
@@ -183,4 +183,8 @@ Rationale:
 - **Hardening our custom ingestion**
   - Replace in-memory token store with persistent encrypted storage (KMS/DB).
   - Add pagination/backoff for large FY exports; consider rate-limit handling.
+
+## Update (BEN-44)
+
+BEN-44 confirmed **single-tenant-per-instance is not acceptable** for R&D Tax AI; we must support **multi-tenant auth and per-call `tenantId` selection** inside the custom `ingest_xero_data` tool. This repo now implements a per-tenant encrypted token store and per-call token retrieval/refresh.
 

@@ -68,6 +68,7 @@ const receipt: XeroAttachment = {
 
 describe("ingestXeroData", () => {
   beforeEach(() => {
+    vi.clearAllMocks();
     vi.mocked(getValidAccessToken).mockResolvedValue(ACCESS_TOKEN);
     vi.mocked(getAttachmentsForTransactions).mockResolvedValue(new Map());
   });

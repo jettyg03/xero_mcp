@@ -119,7 +119,7 @@ Stage 1 normalises the raw transcript to plain text. Claude then extracts `Clien
 
 | Field | Type | Source |
 |-------|------|--------|
-| `tenantId` | string | User-supplied |
+| `tenantId` | string | User-supplied *(or implicit if running one MCP instance per client org)* |
 | `financialYear` | number | Parsed from `ClientRDProfile.claimYear` |
 | `includeAttachments` | boolean | `true` (default) |
 

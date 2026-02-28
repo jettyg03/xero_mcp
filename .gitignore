@@ -4,6 +4,9 @@ node_modules/
 # Build output
 dist/
 
+# Local vendor clones (agent scratch)
+vendor/
+
 # Environment — never commit secrets
 .env
 .env.*

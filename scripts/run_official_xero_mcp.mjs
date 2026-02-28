@@ -49,13 +49,13 @@ const entry = resolve(
 );
 
 if (!existsSync(entry)) {
-  process.stderr.write(
-    [
-      "Official Xero MCP server is not installed.",
-      "Run: npm install -D @xeroapi/xero-mcp-server",
-      "",
-    ].join("\n")
-  );
+    console.error(
+      [
+        "Official Xero MCP server is not installed.",
+        "Run: npm install -D @xeroapi/xero-mcp-server",
+        "",
+      ].join("\n")
+    );
   process.exit(1);
 }
 

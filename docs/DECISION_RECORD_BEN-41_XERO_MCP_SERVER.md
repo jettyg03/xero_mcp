@@ -16,7 +16,7 @@ Stage 2 (`ingest_xero_data`) requires:
 
 - **P&L transaction export**: fetch transaction-level items for a given AU financial year (Jul–Jun), suitable for downstream categorisation.
 - **Attachment retrieval**: fetch attached receipts/invoices per transaction (Xero Attachments API).
-- **Multi-tenant auth at runtime**: support switching between client organisations at runtime (per client/tenant), not “one org per server process”.
+- **Tenant model**: either (a) support switching between client organisations at runtime (per-call tenant selection), **or** (b) run **one MCP instance per client organisation** and treat tenant as process-scoped configuration. *(This record assumes option (b) is acceptable.)*
 - **Data normalisation**: map raw Xero responses into our internal schema with consistent dates/currency handling and review flags.
 - **ToolOutput contract**: return machine-readable JSON including `confidence` and review flags (see `docs/TOOL_CONTRACT.md`).
 
@@ -130,12 +130,12 @@ Impact: We cannot replace `src/xero/attachments.ts` with the official toolset wi
 
 ### 2) Multi-tenant runtime switching (critical)
 
-**Gap:** The official server authenticates once per process from environment variables and sets a single `tenantId` internally (it selects the first connected tenant). There is no per-call `tenantId` parameter and no tool to list/select tenants/connections.
+**Status:** Not a blocker **if** we adopt a **single-tenant MCP deployment model** (one MCP instance per client organisation).
 
-Impact: For our pipeline (multiple client orgs), we would need either:
+Notes:
 
-- one server process per client org, or
-- an extension to the official server to accept per-call tenant selection and token context.
+- The official server authenticates once per process from environment variables and sets a single `tenantId` internally (it selects the first connected tenant).
+- If we later need one server to support many orgs, we would still need per-call tenant selection and connection/token context.
 
 ### 3) Transaction export suitable for categorisation (critical)
 
@@ -165,12 +165,12 @@ Impact: Even if the API coverage matched, we’d need a wrapper/adapter layer fo
 
 ## Decision
 
-**Decision:** **Retain the custom Xero ingestion implementation** for Stage 2 (`ingest_xero_data`). Optionally use the official server **alongside** our server for ad-hoc exploration/debugging (accounts, P&L reports, invoices), but do **not** migrate Stage 2 ingestion to the official toolset at this time.
+**Decision:** **Use the official `xero-mcp-server` as the base for Xero connectivity**, and extend it (or fork it) to add a dedicated ingestion-oriented tool that meets our Stage 2 needs—primarily **attachments retrieval** plus a structured JSON output suitable for downstream pipeline stages.
 
 Rationale:
 
-- The official server **does not currently meet** Stage 2’s critical requirements (attachments retrieval, runtime multi-tenant switching, deterministic FY export semantics, and ToolOutput + normalisation).
-- Using it “as-is” would add a second integration layer (adapters/wrappers) while still requiring custom code for the hardest parts.
+- With a **single-tenant-per-instance** deployment model, the official server’s tenant handling becomes acceptable for our current use case.
+- The remaining critical gaps are still real: **attachment retrieval**, ingestion/export semantics (FY export vs. interactive paging), and a **stable machine-readable output** (either by adopting our ToolOutput contract or by introducing an adapter layer).
 
 ## Follow-up tickets (recommended)
 
